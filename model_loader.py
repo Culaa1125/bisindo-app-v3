@@ -2,11 +2,11 @@
 model_loader.py
 ------------------------------------
 Load semua model AI dan label.
-Menggunakan cache Streamlit agar model hanya dimuat sekali.
+Menggunakan pola Singleton Python murni (tanpa st.cache_resource) 
+agar aman dipanggil dari dalam thread WebRTC.
 """
 
 import json
-import streamlit as st
 import tensorflow as tf
 
 from config import (
@@ -17,19 +17,11 @@ from config import (
     TF_NUM_THREADS,
 )
 
-# Batasi thread pool TensorFlow. Di CPU terbatas (mis. 1 vCPU di
-# Streamlit Cloud free tier), TF secara default mencoba memakai semua
-# core untuk tiap inference call, yang malah membuat context-switching
-# overhead dan bentrok dengan thread MediaPipe. Ini harus dipanggil
-# sebelum operasi TF pertama.
 try:
     tf.config.threading.set_intra_op_parallelism_threads(TF_NUM_THREADS)
     tf.config.threading.set_inter_op_parallelism_threads(TF_NUM_THREADS)
 except RuntimeError:
-    # Sudah ada operasi TF yang berjalan (mis. karena Streamlit rerun) -
-    # abaikan saja, setting sebelumnya tetap berlaku.
     pass
-
 
 class ModelManager:
     """
@@ -42,9 +34,6 @@ class ModelManager:
         self.lstm_labels = {}
 
     def load(self):
-        """
-        Load seluruh model dan label.
-        """
         if self.cnn_model is None:
             self.cnn_model = tf.keras.models.load_model(
                 CNN_MODEL_PATH,
@@ -79,7 +68,14 @@ class ModelManager:
     def get_lstm_labels(self):
         return self.lstm_labels
 
+# ==========================================
+# SINGLETON PATTERN PENGGANTI st.cache
+# ==========================================
+_model_manager_instance = None
 
-@st.cache_resource(show_spinner="Loading AI Models...")
 def load_models():
-    return ModelManager().load()
+    """Mengembalikan instance ModelManager yang sama setiap kali dipanggil."""
+    global _model_manager_instance
+    if _model_manager_instance is None:
+        _model_manager_instance = ModelManager().load()
+    return _model_manager_instance
