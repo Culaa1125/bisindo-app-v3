@@ -114,8 +114,18 @@ def sidebar_ui():
 
         st.subheader("🌐 Koneksi WebRTC")
 
+        def _server_urls(server):
+            """
+            Normalisasi field 'urls': bisa berupa string tunggal
+            (format Twilio) atau list (format lama/manual).
+            """
+            urls = server.get("urls", [])
+            if isinstance(urls, str):
+                return [urls]
+            return urls
+
         has_turn = any(
-            any("turn:" in url or "turns:" in url for url in server.get("urls", []))
+            any("turn:" in url or "turns:" in url for url in _server_urls(server))
             for server in RTC_CONFIGURATION["iceServers"]
         )
 
