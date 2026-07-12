@@ -4,24 +4,28 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer
 
 # ====================================================================
-# HACK / PATCH UNTUK BUG AIOICE DI STREAMLIT CLOUD
+# HACK / PATCH DINAMIS UNTUK BUG AIOICE DI STREAMLIT CLOUD
 # Mengatasi error: AttributeError: 'NoneType' object has no attribute 'sendto'
 # ====================================================================
 import aioice.ice
 
-# 1. Simpan fungsi aslinya
-_original_send_stun = aioice.ice.Connection.send_stun
+# Kita cari secara otomatis class apa yang memiliki method 'send_stun'
+for name, obj in vars(aioice.ice).items():
+    # Jika dia adalah sebuah Class dan punya fungsi 'send_stun'
+    if isinstance(obj, type) and hasattr(obj, "send_stun"):
+        _original_send_stun = getattr(obj, "send_stun")
+        
+        # Buat penambalnya
+        def _make_patched(orig_func):
+            def _patched(self, message, addr):
+                # Jika Streamlit Cloud memblokir socket (transport = None), abaikan!
+                if getattr(self, "transport", None) is None:
+                    return
+                return orig_func(self, message, addr)
+            return _patched
 
-# 2. Buat fungsi pengganti yang kebal terhadap socket kosong (None)
-def _patched_send_stun(self, message, addr):
-    if self.transport is None:
-        # Jika socket diblokir/gagal dibuat oleh Streamlit Cloud, abaikan saja
-        # alih-alih membiarkan seluruh aplikasi crash.
-        return
-    _original_send_stun(self, message, addr)
-
-# 3. Timpa fungsi asli di dalam library dengan fungsi kebal kita
-aioice.ice.Connection.send_stun = _patched_send_stun
+        # Timpa fungsi aslinya dengan fungsi kebal kita
+        setattr(obj, "send_stun", _make_patched(_original_send_stun))
 # ====================================================================
 
 from processor import BISINDOProcessor
