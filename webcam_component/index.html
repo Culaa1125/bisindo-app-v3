@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  #wrap { position: relative; width: 100%; }
+  video, canvas { width: 100%; border-radius: 8px; display: block; }
+  canvas { display: none; }
+  #status {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(0,0,0,0.55); color: #0f0;
+    font: 12px monospace; padding: 3px 8px; border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="status">menyalakan kamera...</div>
+</div>
+
+<script>
+/*
+  Komponen ini TIDAK memakai WebRTC peer-to-peer (aiortc) ke server.
+  Kamera diambil langsung oleh browser (getUserMedia), lalu setiap
+  `intervalMs` sekali diambil satu snapshot (JPEG, dikecilkan dulu),
+  dan dikirim ke Python lewat kanal komponen Streamlit bawaan
+  (postMessage), bukan lewat video stream terus-menerus.
+
+  Ini jauh lebih ringan di server karena:
+  - Tidak ada encode/decode video codec (H264/VP8) di server.
+  - Tidak ada proses aiortc/ICE/peer connection.
+  - Frame rate yang diproses server sepenuhnya kita kontrol
+    (mis. 3-5 fps) alih-alih 15-30 fps continuous stream.
+
+  Trade-off: tiap snapshot baru = 1x rerun script Streamlit,
+  jadi App terasa "per-langkah" bukan video mengalir mulus.
+*/
+
+let intervalMs = 250;
+let targetWidth = 480;
+let jpegQuality = 0.6;
+let timerId = null;
+
+function sendToStreamlit(value) {
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: "streamlit:setComponentValue",
+    value: value,
+    dataType: "json",
+  }, "*");
+}
+
+function setFrameHeight(height) {
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: "streamlit:setFrameHeight",
+    height: height,
+  }, "*");
+}
+
+function componentReady() {
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: "streamlit:componentReady",
+    apiVersion: 1,
+  }, "*");
+}
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const statusEl = document.getElementById("status");
+let ctx = canvas.getContext("2d");
+let frameSeq = 0;
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: targetWidth }, facingMode: "user" },
+      audio: false,
+    });
+    video.srcObject = stream;
+    statusEl.textContent = "kamera aktif";
+    video.addEventListener("loadedmetadata", () => {
+      const ratio = video.videoHeight / video.videoWidth;
+      canvas.width = targetWidth;
+      canvas.height = Math.round(targetWidth * ratio);
+      setFrameHeight(canvas.height + 30);
+      startLoop();
+    });
+  } catch (err) {
+    statusEl.textContent = "Gagal akses kamera: " + err.message;
+    sendToStreamlit({ error: String(err) });
+  }
+}
+
+function startLoop() {
+  if (timerId) clearInterval(timerId);
+  timerId = setInterval(() => {
+    if (video.readyState < 2) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", jpegQuality);
+    frameSeq += 1;
+    statusEl.textContent = "frame #" + frameSeq;
+    sendToStreamlit({
+      image: dataUrl,
+      seq: frameSeq,
+      width: canvas.width,
+      height: canvas.height,
+      ts: Date.now(),
+    });
+  }, intervalMs);
+}
+
+// Terima parameter dari Python (interval_ms, width, quality) lewat
+// render event standar Streamlit Components.
+window.addEventListener("message", (event) => {
+  const data = event.data;
+  if (!data || data.type !== "streamlit:render") return;
+  const args = data.args || {};
+  if (args.interval_ms) intervalMs = args.interval_ms;
+  if (args.width) targetWidth = args.width;
+  if (args.quality) jpegQuality = args.quality;
+  if (!video.srcObject) {
+    startCamera();
+  } else if (timerId === null) {
+    startLoop();
+  }
+});
+
+componentReady();
+setFrameHeight(360);
+</script>
+</body>
+</html>
