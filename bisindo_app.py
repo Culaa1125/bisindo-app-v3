@@ -186,150 +186,120 @@ def camera_ui(settings):
 def result_ui(ctx):
     st.subheader("📋 Dashboard Deteksi")
 
-    # ============================
-    # Ambil hasil dari processor
-    # ============================
-    if ctx and ctx.video_processor:
-
-        result = ctx.video_processor.get_result()
-
-        pred = result["prediction"]
-        mode = result["mode"]
-        conf = result["confidence"]
-        motion = result["motion"]
-        state = result["state"]
-        fps = result["fps"]
-
-        if pred not in ("", "-", "Unknown"):
-
-            if pred != st.session_state.current_word:
-
-                st.session_state.current_word = pred
-                st.session_state.current_mode = mode
-                st.session_state.current_conf = conf
-
-                st.session_state.history.append({
-                    "kata": pred,
-                    "mode": mode,
-                    "conf": conf,
-                    "time": time.strftime("%H:%M:%S")
-                })
-
-                if len(st.session_state.history) > 100:
-                    st.session_state.history.pop(0)
-
-                st.session_state.kalimat.append(pred)
-
-                if len(st.session_state.kalimat) > 30:
-                    st.session_state.kalimat.pop(0)
-
     # ============================================
-    # Dashboard
+    # 1. BUAT WADAH KOSONG (PLACEHOLDERS)
     # ============================================
-
+    # Wadah ini disiapkan di luar loop agar komponen 
+    # UI tidak di-render ulang secara berantakan (flicker).
+    
     st.markdown("### 📌 Informasi Real-Time")
-
     c1, c2 = st.columns(2)
-
     with c1:
-        st.metric(
-            "Mode",
-            st.session_state.current_mode
-        )
-
+        mode_placeholder = st.empty()
     with c2:
-        st.metric(
-            "State",
-            result["state"] if ctx and ctx.video_processor else "-"
-        )
+        state_placeholder = st.empty()
 
-    st.metric(
-        "Prediksi",
-        st.session_state.current_word
-    )
-
-    st.metric(
-        "Confidence",
-        f"{st.session_state.current_conf*100:.1f}%"
-    )
-
-    st.progress(
-        float(st.session_state.current_conf)
-    )
+    pred_placeholder = st.empty()
+    conf_placeholder = st.empty()
+    prog_placeholder = st.empty()
 
     st.divider()
 
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.metric(
-            "Motion",
-            f"{motion:.4f}" if ctx and ctx.video_processor else "-"
-        )
-
-    with c2:
-        st.metric(
-            "FPS",
-            f"{fps:.1f}" if ctx and ctx.video_processor else "-"
-        )
+    c3, c4 = st.columns(2)
+    with c3:
+        motion_placeholder = st.empty()
+    with c4:
+        fps_placeholder = st.empty()
 
     st.divider()
-
     st.subheader("📝 Kalimat")
+    kalimat_placeholder = st.empty()
 
-    if st.session_state.kalimat:
-        st.info(
-            " ".join(
-                st.session_state.kalimat
-            )
-        )
-    else:
-        st.info("-")
-
+    # Tombol aksi tetap berada di luar loop agar ter-render statis
     col1, col2 = st.columns(2)
-
     with col1:
-
         if st.button("Hapus"):
-
-            if st.session_state.kalimat:
-
-                st.session_state.kalimat.pop()
-
-            if st.session_state.history:
-
-                st.session_state.history.pop()
-
+            if st.session_state.kalimat: st.session_state.kalimat.pop()
+            if st.session_state.history: st.session_state.history.pop()
             st.rerun()
-
     with col2:
         if st.button("Reset"):
-
             st.session_state.history = []
             st.session_state.kalimat = []
             st.session_state.current_word = "-"
             st.session_state.current_mode = "-"
             st.session_state.current_conf = 0.0
-
             st.rerun()
 
     st.divider()
-
     st.subheader("🕒 Riwayat")
+    history_placeholder = st.empty()
 
-    if st.session_state.history:
-        for item in reversed(
-            st.session_state.history[-10:]
-        ):
-            st.caption(
-                f"[{item['time']}] "
-                f"{item['kata']} "
-                f"({item['mode']}) "
-                f"{item['conf']:.2f}"
-            )
+    # ============================================
+    # 2. LOOP REAL-TIME UNTUK UPDATE DASHBOARD
+    # ============================================
+    if ctx and ctx.state.playing:
+        import time # Pastikan module time sudah di-import di atas
+        
+        while True:
+            if ctx.video_processor:
+                result = ctx.video_processor.get_result()
 
-    else:
-        st.caption("Belum ada riwayat.")
+                pred = result["prediction"]
+                mode = result["mode"]
+                conf = result["confidence"]
+                motion = result["motion"]
+                state = result["state"]
+                fps = result["fps"]
+
+                # Cek histori kalimat
+                if pred not in ("", "-", "Unknown"):
+                    if pred != st.session_state.current_word:
+                        st.session_state.current_word = pred
+                        st.session_state.current_mode = mode
+                        st.session_state.current_conf = conf
+
+                        st.session_state.history.append({
+                            "kata": pred,
+                            "mode": mode,
+                            "conf": conf,
+                            "time": time.strftime("%H:%M:%S")
+                        })
+
+                        if len(st.session_state.history) > 100:
+                            st.session_state.history.pop(0)
+
+                        st.session_state.kalimat.append(pred)
+
+                        if len(st.session_state.kalimat) > 30:
+                            st.session_state.kalimat.pop(0)
+
+                # Suntikkan data terbaru ke wadah yang sudah dibuat tadi
+                mode_placeholder.metric("Mode", st.session_state.current_mode)
+                state_placeholder.metric("State", state)
+                pred_placeholder.metric("Prediksi", st.session_state.current_word)
+                conf_placeholder.metric("Confidence", f"{st.session_state.current_conf*100:.1f}%")
+                prog_placeholder.progress(float(st.session_state.current_conf))
+
+                motion_placeholder.metric("Motion", f"{motion:.4f}")
+                fps_placeholder.metric("FPS", f"{fps:.1f}")
+
+                if st.session_state.kalimat:
+                    kalimat_placeholder.info(" ".join(st.session_state.kalimat))
+                else:
+                    kalimat_placeholder.info("-")
+
+                # Format ulang riwayat teks
+                if st.session_state.history:
+                    history_text = ""
+                    for item in reversed(st.session_state.history[-10:]):
+                        history_text += f"[{item['time']}] {item['kata']} ({item['mode']}) {item['conf']:.2f}\n\n"
+                    history_placeholder.caption(history_text)
+                else:
+                    history_placeholder.caption("Belum ada riwayat.")
+
+            # Beri jeda 100ms agar loop ini tidak mencekik 100% resource CPU
+            time.sleep(0.1)
     
 def footer_ui():
 
