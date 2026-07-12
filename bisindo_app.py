@@ -4,28 +4,37 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer
 
 # ====================================================================
-# HACK / PATCH DINAMIS UNTUK BUG AIOICE DI STREAMLIT CLOUD
-# Mengatasi error: AttributeError: 'NoneType' object has no attribute 'sendto'
+# HACK / PATCH FINAL UNTUK AIOICE DI STREAMLIT CLOUD
+# Mengatasi error socket UDP (sendto) dan mencegah infinite loop re-run
 # ====================================================================
 import aioice.ice
 
-# Kita cari secara otomatis class apa yang memiliki method 'send_stun'
-for name, obj in vars(aioice.ice).items():
-    # Jika dia adalah sebuah Class dan punya fungsi 'send_stun'
-    if isinstance(obj, type) and hasattr(obj, "send_stun"):
-        _original_send_stun = getattr(obj, "send_stun")
-        
-        # Buat penambalnya
-        def _make_patched(orig_func):
-            def _patched(self, message, addr):
-                # Jika Streamlit Cloud memblokir socket (transport = None), abaikan!
-                if getattr(self, "transport", None) is None:
-                    return
-                return orig_func(self, message, addr)
-            return _patched
+# Gembok agar patch HANYA dipasang satu kali saja
+if not hasattr(aioice.ice, "__is_patched_for_streamlit__"):
+    
+    for name, obj in vars(aioice.ice).items():
+        if isinstance(obj, type) and hasattr(obj, "send_stun"):
+            _original_send_stun = getattr(obj, "send_stun")
+            
+            def _make_patched(orig_func):
+                def _patched(self, message, addr):
+                    try:
+                        # Coba kirim data mencari jalur koneksi
+                        return orig_func(self, message, addr)
+                    except AttributeError:
+                        # Jika firewall Cloud memblokir socket dan memicu 
+                        # 'NoneType object has no attribute sendto', abaikan saja!
+                        pass
+                    except Exception:
+                        # Telan segala error jaringan lainnya agar app tidak mati
+                        pass
+                return _patched
 
-        # Timpa fungsi aslinya dengan fungsi kebal kita
-        setattr(obj, "send_stun", _make_patched(_original_send_stun))
+            # Timpa fungsinya
+            setattr(obj, "send_stun", _make_patched(_original_send_stun))
+    
+    # Kunci gemboknya
+    aioice.ice.__is_patched_for_streamlit__ = True
 # ====================================================================
 
 from processor import BISINDOProcessor
