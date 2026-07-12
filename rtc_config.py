@@ -75,22 +75,42 @@ def _fetch_twilio_ice_servers(account_sid, auth_token):
 
 def _get_ice_servers():
     """
-    Bangun daftar iceServers:
-    - Jika kredensial Twilio tersedia -> pakai TURN dari Twilio.
-    - Jika gagal / tidak ada kredensial -> fallback ke STUN saja.
+    Bangun daftar iceServers dengan filter KETAT HANYA UNTUK TCP.
+    Ini wajib dilakukan di Streamlit Cloud untuk menghindari
+    crash 'NoneType object has no attribute sendto' akibat blokir UDP.
     """
     if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
         try:
             twilio_servers = _fetch_twilio_ice_servers(
                 TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
             )
+            
             if twilio_servers:
-                return twilio_servers
+                tcp_only_servers = []
+                
+                for server in twilio_servers:
+                    urls = server.get("urls", [])
+                    if isinstance(urls, str):
+                        urls = [urls]
+
+                    # Filter: Hanya ambil URL yang menggunakan TCP atau TURNS (enkripsi TLS)
+                    tcp_urls = [
+                        u for u in urls 
+                        if "transport=tcp" in u.lower() or "turns:" in u.lower()
+                    ]
+
+                    if tcp_urls:
+                        new_server = server.copy()
+                        new_server["urls"] = tcp_urls
+                        tcp_only_servers.append(new_server)
+
+                # Gunakan server TCP jika ada, jika kosong kembalikan bawaan Twilio
+                return tcp_only_servers if tcp_only_servers else twilio_servers
+
         except Exception as e:
-            # Jangan sampai error koneksi ke Twilio bikin app crash,
-            # cukup fallback ke STUN dan tampilkan warning di UI.
             st.session_state["_twilio_error"] = str(e)
 
+    # Fallback ke STUN jika Twilio gagal sama sekali
     return [{"urls": [STUN_URL]}]
 
 
