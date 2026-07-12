@@ -98,5 +98,5 @@ ice_servers = _get_ice_servers()
 
 RTC_CONFIGURATION = {
     "iceServers": ice_servers,
-    "iceTransportPolicy": "all",
+    "iceTransportPolicy": "relay",
 }
