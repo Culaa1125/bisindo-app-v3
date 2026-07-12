@@ -402,7 +402,6 @@ class BISINDOProcessor(VideoProcessorBase):
                 "fps": self.fps,
                 "has_prediction": self.stable_prediction != "",
             }
-        self.detector.close()
     
     def __del__(self):
         try:
